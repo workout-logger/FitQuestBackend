@@ -28,14 +28,24 @@ class Inventory(models.Model):
 
 
 class EquippedItem(models.Model):
-    inventory = models.OneToOneField(Inventory, on_delete=models.CASCADE, related_name='equipped_items')
-    legs = models.ForeignKey(Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_legs')
-    headpiece = models.ForeignKey(Item, null=True, blank=True, on_delete=models.SET_NULL,
-                                  related_name='equipped_headpiece')
-    shield = models.ForeignKey(Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_shield')
-    melee_weapon = models.ForeignKey(Item, null=True, blank=True, on_delete=models.SET_NULL,
-                                     related_name='equipped_melee_weapon')
-    armour = models.ForeignKey(Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_armour')
+    inventory = models.OneToOneField(
+        Inventory, on_delete=models.CASCADE, related_name='equipped_items'
+    )
+    legs = models.ForeignKey(
+        Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_legs'
+    )
+    headpiece = models.ForeignKey(
+        Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_headpieces'
+    )
+    shield = models.ForeignKey(
+        Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_shields'
+    )
+    melee_weapon = models.ForeignKey(
+        Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_melee_weapons'
+    )
+    armour = models.ForeignKey(
+        Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_armours'
+    )
 
     def __str__(self):
         return f"Equipped items for {self.inventory.user.username}"

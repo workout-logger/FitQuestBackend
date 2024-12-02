@@ -3,22 +3,26 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 import json
 from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async
-from .models import Inventory, Item, EquippedItem
+from .models import Item, Inventory, EquippedItem
 
 User = get_user_model()
 
 class InventoryConsumer(AsyncWebsocketConsumer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(args, kwargs)
+        self.user = None
+
     async def connect(self):
-        """
-        Handles the WebSocket connection event.
-        """
         self.user = self.scope["user"]
         if self.user.is_authenticated:
+            # Allow connection
             await self.accept()
-            # Send the current inventory state to the user
+
+            # # Load and send inventory data
             inventory_data = await self.get_inventory_data()
             await self.send_inventory_update(inventory_data)
         else:
+            # Close connection for unauthenticated users
             await self.close()
 
     async def disconnect(self, close_code):
@@ -71,7 +75,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             except EquippedItem.DoesNotExist:
                 equipped_data = {}
             return {
-                "items": [{"id": item.id, "name": item.name, "category": item.category} for item in items],
+                "items": [{"id": item.id, "name": item.name, "file_name": item.file_name, "category": item.category} for item in items],
                 "equipped": equipped_data
             }
         except Inventory.DoesNotExist:

@@ -1,11 +1,14 @@
 # inventory/admin.py
 from django.contrib import admin
-from .models import Item, Inventory, EquippedItem
 from django.core.exceptions import ValidationError
+
+from .models import Item, Inventory, EquippedItem
+from .forms import ItemForm
 
 
 @admin.register(Item)
 class ItemAdmin(admin.ModelAdmin):
+    form = ItemForm
     list_display = ('id', 'name', 'category')
     search_fields = ('name', 'category')
     list_filter = ('category',)
