@@ -101,7 +101,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             inventory.items.remove(item)
             try:
                 equipped_items = inventory.equipped_items
-                for field in ["legs", "headpiece", "shield", "melee_weapon", "armour"]:
+                for field in ["legs", "headpiece", "shield", "wings", "melee_weapon", "armour"]:
                     equipped_item = getattr(equipped_items, field)
                     if equipped_item == item:
                         setattr(equipped_items, field, None)
@@ -121,8 +121,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             inventory = Inventory.objects.get(user=self.user)
             equipped_items, _ = EquippedItem.objects.get_or_create(inventory=inventory)
 
-            if category in ["legs", "headpiece", "shield", "melee_weapon", "armour"]:
-                # Ensure the item belongs to the inventory
+            if category in ["legs", "headpiece", "shield", "wings", "melee_weapon", "armour"]:
                 if item in inventory.items.all() and item.category == category:
                     setattr(equipped_items, category, item)
                     equipped_items.save()

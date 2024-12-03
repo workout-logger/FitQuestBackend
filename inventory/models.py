@@ -31,6 +31,9 @@ class EquippedItem(models.Model):
     inventory = models.OneToOneField(
         Inventory, on_delete=models.CASCADE, related_name='equipped_items'
     )
+    wings = models.ForeignKey(
+        Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_wings'
+    )
     legs = models.ForeignKey(
         Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_legs'
     )
