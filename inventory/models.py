@@ -7,7 +7,7 @@ class Item(models.Model):
         ('wings', 'Wings'),
         ('headpiece', 'Headpiece'),
         ('armour', 'Armour'),
-        ('melee_weapon', 'Melee_weapon'),
+        ('melee', 'Melee'),
         ('shield', 'Shield'),
         ('legs', 'Legs'),
     ]
@@ -43,8 +43,8 @@ class EquippedItem(models.Model):
     shield = models.ForeignKey(
         Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_shields'
     )
-    melee_weapon = models.ForeignKey(
-        Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_melee_weapons'
+    melee = models.ForeignKey(
+        Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_melee'
     )
     armour = models.ForeignKey(
         Item, null=True, blank=True, on_delete=models.SET_NULL, related_name='equipped_armours'

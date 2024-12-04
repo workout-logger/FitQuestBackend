@@ -32,9 +32,9 @@ class InventoryAdmin(admin.ModelAdmin):
 
 @admin.register(EquippedItem)
 class EquippedItemAdmin(admin.ModelAdmin):
-    list_display = ('id', 'inventory', 'legs', 'headpiece', 'shield', 'melee_weapon', 'armour')
+    list_display = ('id', 'inventory', 'legs', 'headpiece', 'shield', 'melee', 'armour')
     search_fields = ('inventory__user__username',)
-    list_select_related = ('inventory', 'legs', 'headpiece', 'shield', 'melee_weapon', 'armour')
+    list_select_related = ('inventory', 'legs', 'headpiece', 'shield', 'melee', 'armour')
     ordering = ('id',)
 
     def get_queryset(self, request):
@@ -47,7 +47,7 @@ class EquippedItemAdmin(admin.ModelAdmin):
             'legs',
             'headpiece',
             'shield',
-            'melee_weapon',
+            'melee',
             'armour'
         )
 
@@ -56,7 +56,7 @@ class EquippedItemAdmin(admin.ModelAdmin):
         if not obj.inventory:
             raise ValidationError("EquippedItem must be associated with a valid inventory.")
         # Ensure all equipped items exist in the inventory
-        equipped_items = [obj.legs, obj.headpiece, obj.shield, obj.melee_weapon, obj.armour]
+        equipped_items = [obj.legs, obj.headpiece, obj.shield, obj.melee, obj.armour]
         for item in equipped_items:
             if item and item not in obj.inventory.items.all():
                 raise ValidationError(f"The item '{item}' is not part of the inventory.")

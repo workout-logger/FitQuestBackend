@@ -66,11 +66,12 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             try:
                 equipped_items = inventory.equipped_items
                 equipped_data = {
-                    "legs": equipped_items.legs.id if equipped_items.legs else None,
-                    "headpiece": equipped_items.headpiece.id if equipped_items.headpiece else None,
-                    "shield": equipped_items.shield.id if equipped_items.shield else None,
-                    "melee_weapon": equipped_items.melee_weapon.id if equipped_items.melee_weapon else None,
-                    "armour": equipped_items.armour.id if equipped_items.armour else None,
+                    "legs": equipped_items.legs.file_name if equipped_items.legs else None,
+                    "headpiece": equipped_items.headpiece.file_name if equipped_items.headpiece else "head_blue.png",
+                    "shield": equipped_items.shield.file_name if equipped_items.shield else None,
+                    "melee": equipped_items.melee.file_name if equipped_items.melee else None,
+                    "armour": equipped_items.armour.file_name if equipped_items.armour else "armour_amber.png",
+                    "wings": equipped_items.wings.file_name if equipped_items.wings else None,
                 }
             except EquippedItem.DoesNotExist:
                 equipped_data = {}
@@ -101,7 +102,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             inventory.items.remove(item)
             try:
                 equipped_items = inventory.equipped_items
-                for field in ["legs", "headpiece", "shield", "wings", "melee_weapon", "armour"]:
+                for field in ["legs", "headpiece", "shield", "wings", "melee", "armour"]:
                     equipped_item = getattr(equipped_items, field)
                     if equipped_item == item:
                         setattr(equipped_items, field, None)
@@ -121,7 +122,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             inventory = Inventory.objects.get(user=self.user)
             equipped_items, _ = EquippedItem.objects.get_or_create(inventory=inventory)
 
-            if category in ["legs", "headpiece", "shield", "wings", "melee_weapon", "armour"]:
+            if category in ["legs", "headpiece", "shield", "wings", "melee", "armour"]:
                 if item in inventory.items.all() and item.category == category:
                     setattr(equipped_items, category, item)
                     equipped_items.save()
