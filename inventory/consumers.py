@@ -45,9 +45,15 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             item_id = data.get("item_id")
             await self.remove_item(item_id)
         elif action == "equip_item":
-            item_id = data.get("item_id")
+            item_name = data.get("item_name")
             category = data.get("category")
-            await self.equip_item(item_id, category)
+            await self.equip_item(item_name, category)
+        elif action == "unequip_item":
+            category = data.get("category")
+            await self.unequip_item(category)
+        elif action == "fetch_inventory_data":
+            inventory_data = await self.get_inventory_data()
+            await self.send_inventory_update(inventory_data)
 
     async def send_inventory_update(self, inventory_data):
         """
@@ -75,8 +81,24 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                 }
             except EquippedItem.DoesNotExist:
                 equipped_data = {}
+
+            # Include is_equipped for each item
+            item_list = []
+            for item in items:
+                is_equipped = any(
+                    getattr(equipped_items, key, None) and getattr(equipped_items, key).file_name == item.file_name
+                    for key in ["legs", "headpiece", "shield", "melee", "armour", "wings"]
+                )
+                item_list.append({
+                    "id": item.id,
+                    "name": item.name,
+                    "file_name": item.file_name,
+                    "category": item.category,
+                    "is_equipped": is_equipped
+                })
+
             return {
-                "items": [{"id": item.id, "name": item.name, "file_name": item.file_name, "category": item.category} for item in items],
+                "items": item_list,
                 "equipped": equipped_data
             }
         except Inventory.DoesNotExist:
@@ -113,12 +135,15 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             pass
 
     @sync_to_async
-    def equip_item(self, item_id, category):
+    def equip_item(self, item_name, category):
         """
         Equips an item in the specified category.
         """
+
         try:
-            item = Item.objects.get(id=item_id)
+            print(item_name)
+            item = Item.objects.get(file_name=item_name)
+            print(item)
             inventory = Inventory.objects.get(user=self.user)
             equipped_items, _ = EquippedItem.objects.get_or_create(inventory=inventory)
 
@@ -127,4 +152,19 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                     setattr(equipped_items, category, item)
                     equipped_items.save()
         except (Item.DoesNotExist, Inventory.DoesNotExist):
+            pass
+
+    @sync_to_async
+    def unequip_item(self, category):
+        """
+        Unequips an item from the specified category.
+        """
+        try:
+            inventory = Inventory.objects.get(user=self.user)
+            equipped_items, _ = EquippedItem.objects.get_or_create(inventory=inventory)
+
+            if category in ["legs", "headpiece", "shield", "wings", "melee", "armour"]:
+                setattr(equipped_items, category, None)
+                equipped_items.save()
+        except Inventory.DoesNotExist:
             pass
