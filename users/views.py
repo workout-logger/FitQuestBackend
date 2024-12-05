@@ -1,3 +1,4 @@
+import requests
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView, RegisterView
 from dj_rest_auth.views import LoginView
