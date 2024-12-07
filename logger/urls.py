@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     path('workouts/', views.workout_list, name='workout-list'),
     path('workouts/<int:pk>/', views.workout_detail, name='workout-detail'),
+    path('workout_receiver/', views.workout_receiver, name='workout_receiver'),
     path('debug/', views.print_post_data, name='print_post_data'),
     path('sync_workouts/', views.sync_workouts, name='sync_workouts'),
     path('last_workout/', views.last_workout, name='last_workout'),

@@ -1,18 +1,20 @@
 # views.py
 import json
 from datetime import datetime, timedelta
+
+from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.timezone import make_aware
 
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import Workout
-from exercises.models import MuscleGroup
+from exercises.models import MuscleGroup, Exercise
 from .serializers import WorkoutSerializer
-
 
 # List all workouts or create a new workout
 @api_view(['GET', 'POST'])
@@ -32,6 +34,47 @@ def workout_list(request):
 
 
 # Retrieve, update, or delete a specific workout
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def workout_receiver(request):
+    """
+    Handles incoming workout data and saves it to the database.
+    """
+    try:
+        user = request.user
+        data = request.data
+
+        # Extract data
+        duration = timedelta(milliseconds=data.get("duration", 0))
+        exercises = data.get("exercises", [])
+        workout_date = datetime.now()
+
+        # Create Workout object
+        workout = Workout.objects.create(
+            user=user,
+            duration=duration,
+            workout_date=workout_date,
+            avg_heart_rate = data.get("avg_heart_rate", 100),
+            mood = data.get("mood", 2),
+            energy_burned = data.get("energy_burned", 1000),
+        )
+
+        for exercise_data in exercises:
+            exercise_name = exercise_data.get("name")
+            sets = exercise_data.get("sets", [])
+            exercise = get_object_or_404(Exercise, name=exercise_name)
+            workout.exercises_done.add(exercise)
+
+        workout.save()
+
+        return JsonResponse({"message": "Workout saved successfully."}, status=201)
+
+    except Exception as e:
+        print(e)
+        return JsonResponse({"error": "An error occurred. Check server logs."}, status=500)
+
+
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def workout_detail(request, pk):
