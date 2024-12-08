@@ -3,6 +3,8 @@ from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 from django.urls import path
+import chat.routing
+
 from inventory.consumers import InventoryConsumer
 from inventory.middleware import TokenAuthMiddleware
 
@@ -15,8 +17,10 @@ application = ProtocolTypeRouter({
 
     # WebSocket protocol
     "websocket": TokenAuthMiddleware(
-        URLRouter([
-            path("ws/inventory/", InventoryConsumer.as_asgi()),  # Adjust as per your WebSocket path
-        ])
+        URLRouter(
+            [
+                path("ws/inventory/", InventoryConsumer.as_asgi()),  # Adjust as per your WebSocket path
+            ] + chat.routing.websocket_urlpatterns  # Flatten the combined WebSocket routes
+        )
     ),
 })
