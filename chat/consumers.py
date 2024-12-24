@@ -54,37 +54,44 @@ class ChatConsumer(AsyncWebsocketConsumer):
         # Parse incoming data
         data = json.loads(text_data)
         message = data.get('message')
+        action = data.get('action')  # Specify an action (e.g., 'send' or 'fetch')
 
-        # Ensure message content exists
-        if not message:
-            await self.send(text_data=json.dumps({
-                'error': 'Message content cannot be empty.'
-            }))
+        if action == 'fetch':  # If the client requests the chat history
+            await self.fetch_all_messages()
             return
 
-        # Store message in DynamoDB
-        timestamp = datetime.utcnow().isoformat()
-        table.put_item(
-            Item={
-                'chat_id': 'global_chat',
-                'timestamp': timestamp,
-                'sender_id': str(self.user.id),  # Use authenticated user's ID
-                'username': self.user.username,  # Optionally store the username
-                'message': message,
-            }
-        )
+        # Handle sending a message
+        if action == 'send' and message:
+            # Store message in DynamoDB and send to the group
+            timestamp = datetime.utcnow().isoformat()
+            table.put_item(
+                Item={
+                    'chat_id': 'global_chat',
+                    'timestamp': timestamp,
+                    'sender_id': str(self.user.id),
+                    'username': self.user.username,
+                    'message': message,
+                }
+            )
 
-        # Send message to the group
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                'type': 'chat_message',
-                'sender_id': str(self.user.id),  # Include sender's ID
-                'username': self.user.username,  # Include sender's username
-                'message': message,
-                'timestamp': timestamp,
-            }
-        )
+            # Send message to the group
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message',
+                    'sender_id': str(self.user.id),
+                    'username': self.user.username,
+                    'message': message,
+                    'timestamp': timestamp,
+                }
+            )
+            return
+
+        # Handle invalid action
+        await self.send(text_data=json.dumps({
+            'type': 'error',
+            'message': 'Invalid action or missing parameters.'
+        }))
 
     async def chat_message(self, event):
         # Send message to WebSocket
@@ -94,3 +101,36 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'message': event['message'],
             'timestamp': event['timestamp'],
         }))
+
+    async def fetch_all_messages(self):
+        try:
+            # Query DynamoDB for all messages in the global chat
+            response = table.query(
+                KeyConditionExpression=Key('chat_id').eq('global_chat'),
+                ScanIndexForward=True  # Retrieve messages in ascending order
+            )
+            messages = response.get('Items', [])
+
+            # Format the messages to be sent back to the client
+            formatted_messages = [
+                {
+                    'sender_id': message['sender_id'],
+                    'username': message['username'],
+                    'message': message['message'],
+                    'timestamp': message['timestamp'],
+                }
+                for message in messages
+            ]
+
+            # Send the messages back to the WebSocket client
+            await self.send(text_data=json.dumps({
+                'type': 'chat_history',
+                'messages': formatted_messages
+            }))
+        except Exception as e:
+            # Handle any errors that may occur
+            await self.send(text_data=json.dumps({
+                'type': 'error',
+                'message': f'Failed to fetch messages: {str(e)}'
+            }))
+

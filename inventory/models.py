@@ -11,9 +11,19 @@ class Item(models.Model):
         ('shield', 'Shield'),
         ('legs', 'Legs'),
     ]
+
+
+    RARITY_CHOICES = [
+        ('common', 'Common'),
+        ('rare', 'Rare'),
+        ('epic', 'Epic'),
+        ('legendary', 'Legendary'),
+    ]
+
     file_name = models.CharField(max_length=200)
     name = models.CharField(max_length=100)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    rarity = models.CharField(max_length=20, choices=RARITY_CHOICES, default='common')
 
     def __str__(self):
         return f"{self.name} ({self.category})"
@@ -52,3 +62,12 @@ class EquippedItem(models.Model):
 
     def __str__(self):
         return f"Equipped items for {self.inventory.user.username}"
+
+
+class Chest(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    cost = models.PositiveIntegerField()
+    item_pool = models.ManyToManyField(Item, related_name='chests')
+
+    def __str__(self):
+        return f"{self.name} (Cost: {self.cost})"

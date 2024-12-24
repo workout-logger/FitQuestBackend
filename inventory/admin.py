@@ -2,15 +2,15 @@
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 
-from .models import Item, Inventory, EquippedItem
+from .models import Item, Inventory, EquippedItem, Chest
 from .forms import ItemForm
 
 
 @admin.register(Item)
 class ItemAdmin(admin.ModelAdmin):
     form = ItemForm
-    list_display = ('id', 'name', 'category')
-    search_fields = ('name', 'category')
+    list_display = ('id', 'name', 'category', 'rarity')
+    search_fields = ('name', 'category', 'rarity')
     list_filter = ('category',)
     ordering = ('id',)
 
@@ -60,4 +60,26 @@ class EquippedItemAdmin(admin.ModelAdmin):
         for item in equipped_items:
             if item and item not in obj.inventory.items.all():
                 raise ValidationError(f"The item '{item}' is not part of the inventory.")
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(Chest)
+class ChestAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'cost')
+    search_fields = ('name',)
+    filter_horizontal = ('item_pool',)
+    ordering = ('id',)
+
+    def save_model(self, request, obj, form, change):
+        """
+        Save the Chest instance first, then update the item_pool.
+        """
+        # Save the Chest object to generate an ID
+        if not obj.pk:
+            super().save_model(request, obj, form, change)
+
+        # Update the item_pool after the object has an ID
+        item_pool = form.cleaned_data.get('item_pool', [])
+        if item_pool:
+            obj.item_pool.set(item_pool)  # Use set to ensure items are updated
         super().save_model(request, obj, form, change)
