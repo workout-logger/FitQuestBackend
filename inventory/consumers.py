@@ -21,6 +21,9 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             # # Load and send inventory data
             inventory_data = await self.get_inventory_data()
             await self.send_inventory_update(inventory_data)
+
+            currency_data = await self.get_currency_data()
+            await self.send_currency_update(currency_data)
         else:
             # Close connection for unauthenticated users
             await self.close()
@@ -54,6 +57,9 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         elif action == "fetch_inventory_data":
             inventory_data = await self.get_inventory_data()
             await self.send_inventory_update(inventory_data)
+        elif action == "fetch_currency_data":
+            currency_data = await self.get_currency_data()
+            await self.send_currency_update(currency_data)
 
     async def send_inventory_update(self, inventory_data):
         """
@@ -73,7 +79,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                 equipped_items = inventory.equipped_items
                 equipped_data = {
                     "legs": equipped_items.legs.file_name if equipped_items.legs else None,
-                    "headpiece": equipped_items.headpiece.file_name if equipped_items.headpiece else "head_blue.png",
+                    "headpiece": equipped_items.headpiece.file_name if equipped_items.headpiece else None,
                     "shield": equipped_items.shield.file_name if equipped_items.shield else None,
                     "melee": equipped_items.melee.file_name if equipped_items.melee else None,
                     "armour": equipped_items.armour.file_name if equipped_items.armour else None,
@@ -94,6 +100,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                     "name": item.name,
                     "file_name": item.file_name,
                     "category": item.category,
+                    "rarity": item.rarity,
                     "is_equipped": is_equipped
                 })
 
@@ -103,6 +110,25 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             }
         except Inventory.DoesNotExist:
             return {"items": [], "equipped": {}}
+
+    async def send_currency_update(self, currency_data):
+        """
+        Sends the updated currency data to the client.
+        """
+        await self.send(text_data=json.dumps({
+            "type": "currency_update",
+            "data": currency_data
+        }))
+
+    @sync_to_async
+    def get_currency_data(self):
+        """
+        Fetches the user's current currency data.
+        """
+        try:
+            return {"currency": self.user.coins}  # Assuming currency is a field in the Inventory model
+        except Inventory.DoesNotExist:
+            return {"currency": 0}
 
     @sync_to_async
     def add_item(self, item_id):

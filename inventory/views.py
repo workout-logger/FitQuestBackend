@@ -17,7 +17,7 @@ def get_equipped_items(request):
         equipped_items = EquippedItem.objects.get(inventory=inventory)
         equipped_data = {
             "legs": equipped_items.legs.file_name if equipped_items.legs else None,
-            "headpiece": equipped_items.headpiece.file_name if equipped_items.headpiece else "head_blue.png",
+            "headpiece": equipped_items.headpiece.file_name if equipped_items.headpiece else None,
             "shield": equipped_items.shield.file_name if equipped_items.shield else None,
             "melee": equipped_items.melee.file_name if equipped_items.melee else None,
             "armour": equipped_items.armour.file_name if equipped_items.armour else None,
@@ -38,7 +38,8 @@ def get_equipped_items(request):
 def buy_chest(request):
     try:
         chest_id = request.data.get('chest_id')
-        user_currency = request.user.coins  # Assuming the user model has a related profile with currency
+        user = request.user  # Get the user object
+        user_currency = user.coins  # Assuming coins is a field on the user model
 
         # Fetch the chest
         chest = Chest.objects.get(id=chest_id)
@@ -47,11 +48,11 @@ def buy_chest(request):
             return JsonResponse({"success": False, "message": "Not enough currency to buy this chest."}, status=400)
 
         # Deduct the cost from the user's currency
-        request.user.coins -= chest.cost
-        request.user.coins.save()
+        user.coins -= chest.cost
+        user.save()  # Save the updated user instance
 
         # Add up to 5 random items from the chest's item pool to the user's inventory
-        inventory, created = Inventory.objects.get_or_create(user=request.user)
+        inventory, created = Inventory.objects.get_or_create(user=user)
         random_items = chest.item_pool.order_by('?')[:5]  # Get up to 5 random items
         if not random_items.exists():
             return JsonResponse({"success": False, "message": "The chest has no items available."}, status=400)
@@ -59,7 +60,18 @@ def buy_chest(request):
         for item in random_items:
             inventory.items.add(item)
 
-        received_items = [item.name for item in random_items]
+        # Include all relevant fields for each item in the response
+        received_items = [
+            {
+                "id": item.id,
+                "itemName": item.name,
+                "category": item.category,  # Example: Weapon, Armor, etc.
+                "rarity": item.rarity,  # Example: Common, Rare, Epic
+                "fileName": item.file_name,
+
+            }
+            for item in random_items
+        ]
 
         return JsonResponse({
             "success": True,
@@ -72,3 +84,4 @@ def buy_chest(request):
 
     except Exception as e:
         return JsonResponse({"success": False, "message": str(e)}, status=500)
+
