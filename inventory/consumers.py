@@ -60,6 +60,10 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         elif action == "fetch_currency_data":
             currency_data = await self.get_currency_data()
             await self.send_currency_update(currency_data)
+        elif action == "fetch_character_colors":
+            colors_data = await self.get_character_colors()
+            await self.send_character_colors(colors_data)
+
 
     async def send_inventory_update(self, inventory_data):
         """
@@ -75,6 +79,11 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         try:
             inventory = Inventory.objects.get(user=self.user)
             items = inventory.items.all()
+
+            # Initialize equipped_items to handle cases where it might not be set
+            equipped_items = None
+            equipped_data = {}
+
             try:
                 equipped_items = inventory.equipped_items
                 equipped_data = {
@@ -86,14 +95,17 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                     "wings": equipped_items.wings.file_name if equipped_items.wings else None,
                 }
             except EquippedItem.DoesNotExist:
-                equipped_data = {}
+                # Log the absence of equipped items if needed
+                equipped_items = None
 
             # Include is_equipped for each item
             item_list = []
             for item in items:
-                is_equipped = any(
+                is_equipped = (
+                        equipped_items is not None and any(
                     getattr(equipped_items, key, None) and getattr(equipped_items, key).file_name == item.file_name
                     for key in ["legs", "headpiece", "shield", "melee", "armour", "wings"]
+                )
                 )
                 item_list.append({
                     "id": item.id,
@@ -194,3 +206,23 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                 equipped_items.save()
         except Inventory.DoesNotExist:
             pass
+
+    async def send_character_colors(self, colors_data):
+        """
+        Sends the character colors data to the client.
+        """
+        print(colors_data)
+        await self.send(text_data=json.dumps({
+            "type": "character_colors",
+            "data": colors_data
+        }))
+
+    @sync_to_async
+    def get_character_colors(self):
+        """
+        Fetches the user's body_color and eye_color.
+        """
+        return {
+            "body_color": self.user.body_color if hasattr(self.user, 'body_color') else None,
+            "eye_color": self.user.eye_color if hasattr(self.user, 'eye_color') else None,
+        }

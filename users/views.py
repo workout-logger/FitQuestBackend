@@ -3,8 +3,8 @@ from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView, RegisterView
 from dj_rest_auth.views import LoginView
 from django.http import JsonResponse
-from rest_framework.decorators import api_view
-from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
@@ -117,6 +117,7 @@ class EmailLoginView(APIView):
 
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def username_exists(request):
     username = request.query_params.get('username')
 
@@ -129,3 +130,44 @@ def username_exists(request):
         return JsonResponse({"success": True, "exists": True}, status=200)
     except User.DoesNotExist:
         return JsonResponse({"success": True, "exists": False}, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def save_user_preferences(request):
+    username = request.data.get('username')
+    body_color = request.data.get('body_color_index')
+    eye_color = request.data.get('eye_color_index')
+
+    try:
+        user = request.user
+
+        # Validate body color
+        body_color_value = int(body_color) + 1
+        if body_color_value not in dict(CustomUser.BODY_COLOR_CHOICES):
+            return Response({"error": "Invalid body color choice"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate eye color
+        eye_color_value = int(eye_color) + 1
+        if eye_color_value not in dict(CustomUser.EYE_COLOR_CHOICES):
+            return Response({"error": "Invalid eye color choice"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update user preferences
+        user.username = username
+        user.body_color = body_color_value
+        user.eye_color = eye_color_value
+        user.save()
+
+        # Reload user to confirm save
+        user.refresh_from_db()
+        print(f"Saved Body Color: {user.body_color}")
+        print(f"Saved Eye Color: {user.eye_color}")
+
+        return Response(
+            {
+                "message": "User preferences saved successfully",
+            },
+            status=status.HTTP_200_OK,
+        )
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
