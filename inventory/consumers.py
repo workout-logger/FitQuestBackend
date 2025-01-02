@@ -5,12 +5,11 @@ from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async
 from .models import Item, Inventory, EquippedItem, MarketListing
 
-User = get_user_model()
-
 class InventoryConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(args, kwargs)
         self.user = None
+
 
     async def connect(self):
         self.user = self.scope["user"]
