@@ -3,7 +3,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 import json
 from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async
-from .models import Item, Inventory, EquippedItem
+from .models import Item, Inventory, EquippedItem, MarketListing
 
 User = get_user_model()
 
@@ -63,6 +63,15 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         elif action == "fetch_character_colors":
             colors_data = await self.get_character_colors()
             await self.send_character_colors(colors_data)
+        elif action == "add_listing":
+            item_id = data.get("item_id")
+            price = data.get("price")
+            await self.add_listing(item_id, price)
+        elif action == "buy_listing":
+            listing_id = data.get("listing_id")
+            await self.buy_from_listing(listing_id)
+        elif action == "fetch_market_listings":
+            await self.fetch_market_listings()
 
 
     async def send_inventory_update(self, inventory_data):
@@ -220,9 +229,139 @@ class InventoryConsumer(AsyncWebsocketConsumer):
     @sync_to_async
     def get_character_colors(self):
         """
-        Fetches the user's body_color and eye_color.
+        Fetches the user's body_color and eye_color from the database to ensure up-to-date values.
         """
+        # Re-fetch the user object from the database
+        user = self.user.__class__.objects.get(pk=self.user.pk)
         return {
-            "body_color": self.user.body_color if hasattr(self.user, 'body_color') else None,
-            "eye_color": self.user.eye_color if hasattr(self.user, 'eye_color') else None,
+            "body_color": user.body_color,
+            "eye_color": user.eye_color,
         }
+
+    @sync_to_async
+    def create_market_listing(self, item_id, price):
+        """
+        Creates a marketplace listing for an item.
+        """
+        try:
+            inventory = Inventory.objects.get(user=self.user)
+            item = inventory.items.get(id=item_id)
+
+            # Validate price
+            if price <= 0:
+                raise ValueError("Price must be greater than zero.")
+
+            # Create listing
+            listing = MarketListing.objects.create(
+                item=item,
+                seller=self.user,
+                listed_price=price
+            )
+
+            return {
+                "id": listing.id,
+                "itemName": listing.item.name,
+                "price": listing.listed_price,
+                "category": listing.item.category,
+                "rarity": listing.item.rarity
+            }
+        except Inventory.DoesNotExist:
+            raise ValueError("User inventory not found.")
+        except Item.DoesNotExist:
+            raise ValueError("Item not found in inventory.")
+
+    async def add_listing(self, item_id, price):
+        """
+        Adds an item to the marketplace.
+        """
+        try:
+            listing_data = await self.create_market_listing(item_id, price)
+            await self.send(text_data=json.dumps({
+                "type": "market_listing_added",
+                "data": listing_data
+            }))
+        except ValueError as e:
+            await self.send_error(str(e))
+
+    @sync_to_async
+    def purchase_market_listing(self, listing_id):
+        """
+        Handles the purchase of an item from the marketplace.
+        """
+        try:
+            listing = MarketListing.objects.get(id=listing_id, is_active=True)
+            buyer = self.user
+
+            # Check if buyer has enough coins
+            if buyer.coins < listing.listed_price:
+                raise ValueError("Not enough currency to buy this item.")
+
+            # Deduct coins from buyer
+            buyer.coins -= listing.listed_price
+            buyer.save()
+
+            # Add item to buyer's inventory
+            inventory, _ = Inventory.objects.get_or_create(user=buyer)
+            inventory.items.add(listing.item)
+
+            # Mark the listing as inactive
+            listing.is_active = False
+            listing.save()
+
+            # Add coins to seller
+            listing.seller.coins += listing.listed_price
+            listing.seller.save()
+
+            return {
+                "id": listing.item.id,
+                "itemName": listing.item.name,
+                "price": listing.listed_price,
+                "category": listing.item.category,
+                "rarity": listing.item.rarity
+            }
+        except MarketListing.DoesNotExist:
+            raise ValueError("Listing not found or no longer available.")
+
+    async def buy_from_listing(self, listing_id):
+        """
+        Processes a marketplace purchase.
+        """
+        try:
+            purchase_data = await self.purchase_market_listing(listing_id)
+            await self.send(text_data=json.dumps({
+                "type": "market_purchase_success",
+                "data": purchase_data
+            }))
+        except ValueError as e:
+            await self.send(str(e))
+
+    @sync_to_async
+    def get_active_market_listings(self):
+        """
+        Fetches all active marketplace listings.
+        """
+        listings = MarketListing.objects.filter(is_active=True).select_related('item', 'seller')
+        return [
+            {
+                "id": listing.id,
+                "itemName": listing.item.name,
+                "price": listing.listed_price,
+                "seller": listing.seller.username,
+                "category": listing.item.category,
+                "rarity": listing.item.rarity
+            }
+            for listing in listings
+        ]
+
+    async def fetch_market_listings(self):
+        """
+        Fetches and sends active marketplace listings to the client.
+        """
+        try:
+            listings = await self.get_active_market_listings()
+            await self.send(text_data=json.dumps({
+                "type": "market_listings",
+                "data": listings
+            }))
+        except Exception as e:
+            await self.send("Failed to fetch market listings.")

@@ -1,9 +1,9 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Inventory, EquippedItem, Chest
+from .models import Inventory, EquippedItem, Chest, MarketListing
 
 
 @api_view(['GET'])
@@ -85,3 +85,117 @@ def buy_chest(request):
     except Exception as e:
         return JsonResponse({"success": False, "message": str(e)}, status=500)
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_listing(request):
+    try:
+        item_id = request.data.get('item_id')
+        price = request.data.get('price')
+
+        # Validate inputs
+        if not item_id or not price:
+            return JsonResponse({"success": False, "message": "Item ID and price are required."}, status=400)
+
+        # Check if the item exists in the user's inventory
+        inventory = get_object_or_404(Inventory, user=request.user)
+        item = get_object_or_404(inventory.items, id=item_id)
+
+        # Create a new market listing
+        listing = MarketListing.objects.create(
+            item=item,
+            seller=request.user,
+            listed_price=price
+        )
+
+        return JsonResponse({
+            "success": True,
+            "message": "Item listed successfully.",
+            "listing": {
+                "id": listing.id,
+                "itemName": listing.item.name,
+                "price": listing.listed_price,
+                "category": listing.item.category,
+                "rarity": listing.item.rarity
+            }
+        }, status=201)
+
+    except Exception as e:
+        return JsonResponse({"success": False, "message": str(e)}, status=500)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def buy_from_listing(request):
+    try:
+        listing_id = request.data.get('listing_id')
+
+        # Validate input
+        if not listing_id:
+            return JsonResponse({"success": False, "message": "Listing ID is required."}, status=400)
+
+        # Fetch the listing
+        listing = get_object_or_404(MarketListing, id=listing_id, is_active=True)
+
+        # Check if the user has enough coins
+        buyer = request.user
+        if buyer.coins < listing.listed_price:
+            return JsonResponse({"success": False, "message": "Not enough currency to buy this item."}, status=400)
+
+        # Deduct coins from the buyer
+        buyer.coins -= listing.listed_price
+        buyer.save()
+
+        # Add the item to the buyer's inventory
+        inventory, _ = Inventory.objects.get_or_create(user=buyer)
+        inventory.items.add(listing.item)
+
+        # Mark the listing as inactive
+        listing.is_active = False
+        listing.save()
+
+        # Add coins to the seller
+        listing.seller.coins += listing.listed_price
+        listing.seller.save()
+
+        return JsonResponse({
+            "success": True,
+            "message": f"You successfully bought {listing.item.name}.",
+            "item": {
+                "id": listing.item.id,
+                "itemName": listing.item.name,
+                "price": listing.listed_price,
+                "category": listing.item.category,
+                "rarity": listing.item.rarity
+            }
+        }, status=200)
+
+    except MarketListing.DoesNotExist:
+        return JsonResponse({"success": False, "message": "Listing not found or no longer available."}, status=404)
+
+    except Exception as e:
+        return JsonResponse({"success": False, "message": str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def show_listings(request):
+    try:
+        listings = MarketListing.objects.filter(is_active=True).select_related('item', 'seller')
+
+        listing_data = [
+            {
+                "id": listing.id,
+                "itemName": listing.item.name,
+                "price": listing.listed_price,
+                "seller": listing.seller.username,
+                "category": listing.item.category,
+                "rarity": listing.item.rarity
+            }
+            for listing in listings
+        ]
+
+        return JsonResponse({
+            "success": True,
+            "listings": listing_data
+        }, status=200)
+
+    except Exception as e:
+        return JsonResponse({"success": False, "message": str(e)}, status=500)
