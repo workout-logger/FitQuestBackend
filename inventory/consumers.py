@@ -3,7 +3,6 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 import json
 from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async
-from .models import Item, Inventory, EquippedItem, MarketListing
 
 class InventoryConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
@@ -84,6 +83,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
 
     @sync_to_async
     def get_inventory_data(self):
+        from .models import Inventory, EquippedItem
         try:
             inventory = Inventory.objects.get(user=self.user)
             items = inventory.items.all()
@@ -145,6 +145,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         """
         Fetches the user's current currency data.
         """
+        from .models import Inventory
         try:
             return {"currency": self.user.coins}  # Assuming currency is a field in the Inventory model
         except Inventory.DoesNotExist:
@@ -155,6 +156,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         """
         Adds an item to the user's inventory.
         """
+        from .models import Item, Inventory
         try:
             item = Item.objects.get(id=item_id)
             inventory, _ = Inventory.objects.get_or_create(user=self.user)
@@ -164,6 +166,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
 
     @sync_to_async
     def remove_item(self, item_id):
+        from .models import Item, Inventory, EquippedItem
         try:
             item = Item.objects.get(id=item_id)
             inventory = Inventory.objects.get(user=self.user)
@@ -185,7 +188,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         """
         Equips an item in the specified category.
         """
-
+        from .models import Item, Inventory, EquippedItem
         try:
             print(item_name)
             item = Item.objects.get(file_name=item_name)
@@ -205,6 +208,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         """
         Unequips an item from the specified category.
         """
+        from .models import Inventory, EquippedItem
         try:
             inventory = Inventory.objects.get(user=self.user)
             equipped_items, _ = EquippedItem.objects.get_or_create(inventory=inventory)
@@ -242,6 +246,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         """
         Creates a marketplace listing for an item.
         """
+        from .models import Item, Inventory, MarketListing
         try:
             inventory = Inventory.objects.get(user=self.user)
             item = inventory.items.get(id=item_id)
@@ -287,6 +292,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         """
         Handles the purchase of an item from the marketplace.
         """
+        from .models import Inventory, MarketListing
         try:
             listing = MarketListing.objects.get(id=listing_id, is_active=True)
             buyer = self.user
@@ -339,6 +345,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         """
         Fetches all active marketplace listings.
         """
+        from .models import MarketListing
         listings = MarketListing.objects.filter(is_active=True).select_related('item', 'seller')
         return [
             {
