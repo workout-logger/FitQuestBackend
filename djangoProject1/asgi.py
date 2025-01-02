@@ -3,10 +3,6 @@ from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 from django.urls import path
-import chat.routing
-
-from inventory.consumers import InventoryConsumer
-from inventory.middleware import TokenAuthMiddleware
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'djangoProject1.settings')
 
@@ -16,11 +12,27 @@ application = ProtocolTypeRouter({
     "http": get_asgi_application(),
 
     # WebSocket protocol
-    "websocket": TokenAuthMiddleware(
+    "websocket": AuthMiddlewareStack(
         URLRouter(
-            [
-                path("ws/inventory/", InventoryConsumer.as_asgi()),  # Adjust as per your WebSocket path
-            ] + chat.routing.websocket_urlpatterns  # Flatten the combined WebSocket routes
+            # WebSocket paths defined below in a deferred manner
+            []
         )
     ),
 })
+
+# Lazy load WebSocket routes
+def add_websocket_routes():
+    from inventory.consumers import InventoryConsumer
+    from inventory.middleware import TokenAuthMiddleware
+    import chat.routing
+
+    application.application_mapping["websocket"] = TokenAuthMiddleware(
+        URLRouter(
+            [
+                path("ws/inventory/", InventoryConsumer.as_asgi()),  # Adjust WebSocket path
+            ] + chat.routing.websocket_urlpatterns  # Add chat WebSocket routes
+        )
+    )
+
+# Call the function to load routes after initialization
+add_websocket_routes()
