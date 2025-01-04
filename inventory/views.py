@@ -89,16 +89,20 @@ def buy_chest(request):
 @permission_classes([IsAuthenticated])
 def add_listing(request):
     try:
-        item_id = request.data.get('item_id')
+        item_name = request.data.get('item_name')
         price = request.data.get('price')
 
         # Validate inputs
-        if not item_id or not price:
-            return JsonResponse({"success": False, "message": "Item ID and price are required."}, status=400)
+        if not item_name or not price:
+            return JsonResponse({"success": False, "message": "Item name and price are required."}, status=400)
 
-        # Check if the item exists in the user's inventory
+        # Check if the inventory exists for the user
         inventory = get_object_or_404(Inventory, user=request.user)
-        item = get_object_or_404(inventory.items, id=item_id)
+
+        # Find the item in the user's inventory by name
+        item = inventory.items.filter(name=item_name).first()
+        if not item:
+            return JsonResponse({"success": False, "message": f"Item '{item_name}' not found in inventory."}, status=404)
 
         # Create a new market listing
         listing = MarketListing.objects.create(
