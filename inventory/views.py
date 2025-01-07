@@ -139,8 +139,13 @@ def buy_from_listing(request):
         # Fetch the listing
         listing = get_object_or_404(MarketListing, id=listing_id, is_active=True)
 
-        # Check if the user has enough coins
+        # Check if the buyer already owns the item (based on the item name)
         buyer = request.user
+        inventory, _ = Inventory.objects.get_or_create(user=buyer)
+        if inventory.items.filter(name=listing.item.name).exists():
+            return JsonResponse({"success": False, "message": "You already own this item."}, status=400)
+
+        # Check if the user has enough coins
         if buyer.coins < listing.listed_price:
             return JsonResponse({"success": False, "message": "Not enough currency to buy this item."}, status=400)
 
@@ -149,7 +154,6 @@ def buy_from_listing(request):
         buyer.save()
 
         # Add the item to the buyer's inventory
-        inventory, _ = Inventory.objects.get_or_create(user=buyer)
         inventory.items.add(listing.item)
 
         # Mark the listing as inactive
@@ -178,6 +182,7 @@ def buy_from_listing(request):
     except Exception as e:
         return JsonResponse({"success": False, "message": str(e)}, status=500)
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def show_listings(request):
@@ -188,10 +193,15 @@ def show_listings(request):
             {
                 "id": listing.id,
                 "itemName": listing.item.name,
+                "fileName": (
+                    f"assets/character/{listing.item.category}/{listing.item.file_name}"
+                    if listing.item.category.lower() == "armour"
+                    else f"assets/character/{listing.item.category}/{listing.item.file_name}_inv"
+                ),
                 "price": listing.listed_price,
                 "seller": listing.seller.username,
                 "category": listing.item.category,
-                "rarity": listing.item.rarity
+                "rarity": listing.item.rarity,
             }
             for listing in listings
         ]

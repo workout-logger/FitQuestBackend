@@ -115,10 +115,14 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                     for key in ["legs", "headpiece", "shield", "melee", "armour", "wings"]
                 )
                 )
+                # Append `_inv` to file_name for everything except armour
+                file_name = f"{item.file_name}_inv" if item.category != "armour" else item.file_name
+
                 item_list.append({
                     "id": item.id,
                     "name": item.name,
                     "file_name": item.file_name,
+                    "file_name_inv": file_name,
                     "category": item.category,
                     "rarity": item.rarity,
                     "is_equipped": is_equipped
@@ -191,7 +195,11 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         from .models import Item, Inventory, EquippedItem
         try:
             print(item_name)
-            item = Item.objects.get(file_name=item_name)
+            items = Item.objects.filter(file_name=item_name)
+            if not items.exists():
+                raise Item.DoesNotExist
+            print(items)
+            item = items.first()  # Handle potential duplicates by taking the first result
             print(item)
             inventory = Inventory.objects.get(user=self.user)
             equipped_items, _ = EquippedItem.objects.get_or_create(inventory=inventory)
@@ -201,7 +209,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                     setattr(equipped_items, category, item)
                     equipped_items.save()
         except (Item.DoesNotExist, Inventory.DoesNotExist):
-            pass
+            print("Item or Inventory does not exist.")
 
     @sync_to_async
     def unequip_item(self, category):

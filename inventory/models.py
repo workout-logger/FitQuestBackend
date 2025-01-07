@@ -75,7 +75,7 @@ class Chest(models.Model):
 class MarketListing(models.Model):
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name='listings')
     seller = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='market_listings')
-    listed_price = models.DecimalField(max_digits=10, decimal_places=2)
+    listed_price = models.DecimalField(max_digits=10, decimal_places=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
