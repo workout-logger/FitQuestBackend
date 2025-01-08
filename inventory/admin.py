@@ -9,8 +9,8 @@ from .forms import ItemForm
 @admin.register(Item)
 class ItemAdmin(admin.ModelAdmin):
     form = ItemForm
-    list_display = ('id', 'name', 'category', 'rarity')
-    search_fields = ('name', 'category', 'rarity')
+    list_display = ('id', 'name', 'category', 'rarity', 'strength', 'agility', 'intelligence', 'stealth', 'speed', 'defence')
+    search_fields = ('name', 'category', 'rarity','strength', 'agility', 'intelligence', 'stealth', 'speed', 'defence')
     list_filter = ('category',)
     ordering = ('id',)
 

@@ -50,7 +50,8 @@ def buy_chest(request):
         # Deduct the cost from the user's currency
         user.coins -= chest.cost
         user.save()  # Save the updated user instance
-
+        curr = user.coins
+        print(curr)
         # Add up to 5 random items from the chest's item pool to the user's inventory
         inventory, created = Inventory.objects.get_or_create(user=user)
         random_items = chest.item_pool.order_by('?')[:5]  # Get up to 5 random items
@@ -77,6 +78,7 @@ def buy_chest(request):
             "success": True,
             "message": "You have received the following items:",
             "items": received_items,
+            "currency": curr,
         }, status=200)
 
     except Chest.DoesNotExist:

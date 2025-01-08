@@ -128,12 +128,35 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                     "is_equipped": is_equipped
                 })
 
+            # Fetch player stats from the user object
+            stats = {
+                "strength": self.user.strength,
+                "agility": self.user.agility,
+                "intelligence": self.user.intelligence,
+                "stealth": self.user.stealth,
+                "speed": self.user.speed,
+                "defence": self.user.defence,
+            }
+
+            # Add stats from equipped items
+            if equipped_items:
+                for key in ["legs", "headpiece", "shield", "melee", "armour", "wings"]:
+                    item = getattr(equipped_items, key, None)
+                    if item:
+                        stats["strength"] += getattr(item, "strength", 0)
+                        stats["agility"] += getattr(item, "agility", 0)
+                        stats["intelligence"] += getattr(item, "intelligence", 0)
+                        stats["stealth"] += getattr(item, "stealth", 0)
+                        stats["speed"] += getattr(item, "speed", 0)
+                        stats["defence"] += getattr(item, "defence", 0)
+
             return {
                 "items": item_list,
-                "equipped": equipped_data
+                "equipped": equipped_data,
+                "stats": stats
             }
         except Inventory.DoesNotExist:
-            return {"items": [], "equipped": {}}
+            return {"items": [], "equipped": {}, "stats": {}}  # Default empty stats if no inventory exists
 
     async def send_currency_update(self, currency_data):
         """

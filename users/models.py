@@ -25,5 +25,12 @@ class CustomUser(AbstractUser):
     body_color = models.PositiveSmallIntegerField(choices=BODY_COLOR_CHOICES, blank=True, null=True)
     eye_color = models.PositiveSmallIntegerField(choices=EYE_COLOR_CHOICES, blank=True, null=True)
 
+    strength = models.PositiveIntegerField(default=10, help_text="Player's strength attribute.")
+    agility = models.PositiveIntegerField(default=10, help_text="Player's agility attribute.")
+    intelligence = models.PositiveIntegerField(default=10, help_text="Player's intelligence attribute.")
+    stealth = models.PositiveIntegerField(default=10, help_text="Player's stealth attribute.")
+    speed = models.PositiveIntegerField(default=10, help_text="Player's speed attribute.")
+    defence = models.PositiveIntegerField(default=10, help_text="Player's defence attribute.")
+
     def __str__(self):
         return self.username

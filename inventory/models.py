@@ -24,6 +24,14 @@ class Item(models.Model):
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
     rarity = models.CharField(max_length=20, choices=RARITY_CHOICES, default='common')
 
+    strength = models.PositiveIntegerField(default=0, help_text="Player's strength attribute.")
+    agility = models.PositiveIntegerField(default=0, help_text="Player's agility attribute.")
+    intelligence = models.PositiveIntegerField(default=0, help_text="Player's intelligence attribute.")
+    stealth = models.PositiveIntegerField(default=0, help_text="Player's stealth attribute.")
+    speed = models.PositiveIntegerField(default=0, help_text="Player's speed attribute.")
+    defence = models.PositiveIntegerField(default=0, help_text="Player's defence attribute.")
+
+
     def __str__(self):
         return f"{self.name} ({self.category})"
 
