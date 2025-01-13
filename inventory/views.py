@@ -1,9 +1,10 @@
+from django.db import transaction
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Inventory, EquippedItem, Chest, MarketListing
+from .models import Inventory, EquippedItem, Chest, MarketListing, Item
 
 
 @api_view(['GET'])
@@ -38,6 +39,12 @@ def get_equipped_items(request):
 def buy_chest(request):
     try:
         chest_id = request.data.get('chest_id')
+        if not chest_id:
+            return JsonResponse(
+                {"success": False, "message": "Chest ID is required."},
+                status=400
+            )
+
         user = request.user  # Get the user object
         user_currency = user.coins  # Assuming coins is a field on the user model
 
@@ -45,47 +52,99 @@ def buy_chest(request):
         chest = Chest.objects.get(id=chest_id)
 
         if user_currency < chest.cost:
-            return JsonResponse({"success": False, "message": "Not enough currency to buy this chest."}, status=400)
+            return JsonResponse(
+                {"success": False, "message": "Not enough currency to buy this chest."},
+                status=400
+            )
 
-        # Deduct the cost from the user's currency
-        user.coins -= chest.cost
-        user.save()  # Save the updated user instance
-        curr = user.coins
-        print(curr)
-        # Add up to 5 random items from the chest's item pool to the user's inventory
-        inventory, created = Inventory.objects.get_or_create(user=user)
-        random_items = chest.item_pool.order_by('?')[:5]  # Get up to 5 random items
-        if not random_items.exists():
-            return JsonResponse({"success": False, "message": "The chest has no items available."}, status=400)
+        with transaction.atomic():
+            # Deduct the cost from the user's currency
+            user.coins -= chest.cost
+            user.save()  # Save the updated user instance
 
-        for item in random_items:
-            inventory.items.add(item)
+            # Add up to 5 items to the user's inventory, ensuring at least 2 are coins
+            inventory, created = Inventory.objects.get_or_create(user=user)
+            item_pool = chest.item_pool.exclude(category='coins')  # Exclude coins for random selection
 
-        # Include all relevant fields for each item in the response
-        received_items = [
-            {
-                "id": item.id,
-                "itemName": item.name,
-                "category": item.category,  # Example: Weapon, Armor, etc.
-                "rarity": item.rarity,  # Example: Common, Rare, Epic
-                "fileName": item.file_name,
+            # Fetch or create the coin item
+            coin_item = Item.objects.filter(category='coins').first()
+            if not coin_item:
+                return JsonResponse(
+                    {"success": False, "message": "Coin item not found in the database."},
+                    status=500
+                )
 
-            }
-            for item in random_items
-        ]
 
-        return JsonResponse({
-            "success": True,
-            "message": "You have received the following items:",
-            "items": received_items,
-            "currency": curr,
-        }, status=200)
+
+            # Add the value of the coins to the user's currency
+            user.coins += 20  # Adjust as per the value each coin should add
+            user.save()
+
+            # Randomly select 3 other items from the item pool
+            random_items = item_pool.order_by('?')[:3]
+            for item in random_items:
+                inventory.items.add(item)
+
+            # Function to include only non-zero stats
+            def get_item_stats(item):
+                stats = {}
+                if item.strength > 0:
+                    stats["strength"] = item.strength
+                if item.agility > 0:
+                    stats["agility"] = item.agility
+                if item.intelligence > 0:
+                    stats["intelligence"] = item.intelligence
+                if item.stealth > 0:
+                    stats["stealth"] = item.stealth
+                if item.speed > 0:
+                    stats["speed"] = item.speed
+                if item.defence > 0:
+                    stats["defence"] = item.defence
+                return stats
+
+            # Prepare response with all received items, including their non-zero stats
+            received_items = []
+            # Add coin items first
+            for _ in range(2):
+                received_items.append({
+                    "id": coin_item.id,
+                    "itemName": coin_item.name,
+                    "category": coin_item.category,
+                    "rarity": coin_item.rarity,
+                    "fileName": coin_item.file_name,
+                    # Assuming coins don't have stats; omit if they do, similar to below
+                })
+            # Add random items
+            for item in random_items:
+                item_data = {
+                    "id": item.id,
+                    "itemName": item.name,
+                    "category": item.category,
+                    "rarity": item.rarity,
+                    "fileName": item.file_name,
+                }
+                item_stats = get_item_stats(item)
+                item_data.update(item_stats)
+                received_items.append(item_data)
+
+            return JsonResponse({
+                "success": True,
+                "message": "You have received the following items:",
+                "items": received_items,
+                "currency": user.coins,
+            }, status=200)
 
     except Chest.DoesNotExist:
-        return JsonResponse({"success": False, "message": "Chest not found."}, status=404)
+        return JsonResponse(
+            {"success": False, "message": "Chest not found."},
+            status=404
+        )
 
     except Exception as e:
-        return JsonResponse({"success": False, "message": str(e)}, status=500)
+        return JsonResponse(
+            {"success": False, "message": str(e)},
+            status=500
+        )
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])

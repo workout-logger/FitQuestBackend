@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 
-from .models import Item, Inventory, EquippedItem, Chest
+from .models import Item, Inventory, EquippedItem, Chest, NPC
 from .forms import ItemForm
 
 
@@ -14,6 +14,31 @@ class ItemAdmin(admin.ModelAdmin):
     list_filter = ('category',)
     ordering = ('id',)
 
+
+@admin.register(NPC)
+class NPCAdmin(admin.ModelAdmin):
+    # Display these fields in the admin list view
+    list_display = ('name', 'short_description', 'file_name')
+
+    # Add search functionality for name and short description
+    search_fields = ('name', 'short_description')
+
+    # Display these fields in the detail/edit view
+    fields = ('name', 'short_description', 'likes', 'dislikes', 'file_name')
+
+    # Read-only display of likes and dislikes as lists (optional for better insights)
+    readonly_fields = ('display_likes_list', 'display_dislikes_list')
+
+    def display_likes_list(self, obj):
+        """Displays likes as a list in the admin panel."""
+        return obj.get_likes_list()
+
+    def display_dislikes_list(self, obj):
+        """Displays dislikes as a list in the admin panel."""
+        return obj.get_dislikes_list()
+
+    display_likes_list.short_description = "Likes (List)"
+    display_dislikes_list.short_description = "Dislikes (List)"
 
 @admin.register(Inventory)
 class InventoryAdmin(admin.ModelAdmin):

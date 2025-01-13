@@ -1,9 +1,16 @@
 # inventory/consumers.py
+from random import choice
+
+from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 import json
-from django.contrib.auth import get_user_model
-from asgiref.sync import sync_to_async
 
+from channels.layers import get_channel_layer
+from django.contrib.auth import get_user_model
+from asgiref.sync import sync_to_async, async_to_sync
+import logging
+
+logger = logging.getLogger(__name__)
 class InventoryConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(args, kwargs)
@@ -70,6 +77,21 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             await self.buy_from_listing(listing_id)
         elif action == "fetch_market_listings":
             await self.fetch_market_listings()
+        elif action == "start_dungeon":
+            await self.handle_start_dungeon()
+        elif action == "stop_dungeon":
+            await self.stop_dungeon()
+        elif action == "handle_dungeon_choice":
+            choice_index = data.get("choice_index", 0)
+            await self.handle_dungeon_choice(choice_index)
+        elif action == "fetch_dungeon_data":
+            dungeon_data = await self.get_dungeon_data()
+            await self.send(text_data=json.dumps({
+                "type": "dungeon_data",
+                "data": dungeon_data
+            }))
+        elif action == "check_dungeon_status":
+            await self.is_player_in_dungeon()
 
 
     async def send_inventory_update(self, inventory_data):
@@ -402,3 +424,336 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             }))
         except Exception as e:
             await self.send("Failed to fetch market listings.")
+
+    # ------------------ DUNGEON-RELATED CODE ------------------ #
+
+    @sync_to_async
+    def start_dungeon(self):
+        """
+        Starts an offline/online dungeon session for the user.
+        Schedules item rewards and an NPC event offline via Celery tasks.
+        """
+        from django.utils.timezone import now, timedelta
+        from .models import DungeonSession
+        print("here")
+
+        # Check if a dungeon session is already active
+        try:
+            active_session = DungeonSession.objects.filter(
+                user=self.user,
+                end_time__isnull=True,
+                paused=False
+            ).order_by('-start_time').first()
+
+            if active_session:
+                print("session already exists")
+                return False
+
+            # Create a new DungeonSession
+            session = DungeonSession.objects.create(
+                user=self.user,
+                start_time=now(),
+                next_item_time=now() + timedelta(minutes=1)  # First item in ~10 minutes
+            )
+            print("session created")
+            return True
+
+        except Exception as e:
+            print(f"Error in start_dungeon: {e}")
+            return False
+
+    async def handle_start_dungeon(self):
+        """
+        Wrapper method to handle the dungeon start process asynchronously
+        """
+        success = await self.start_dungeon()
+
+        if success:
+            await self.send(text_data=json.dumps({
+                "type": "dungeon_started",
+                "message": "Dungeon run started."
+            }))
+        else:
+            await self.send(text_data=json.dumps({
+                "type": "dungeon_error",
+                "message": "A dungeon session is already in progress."
+            }))
+
+    async def stop_dungeon(self):
+        from django.utils.timezone import now
+        from .models import DungeonSession
+
+        session = await self.get_active_dungeon_session()
+        if not session:
+            await self.send(text_data=json.dumps({
+                "type": "dungeon_error",
+                "message": "No active dungeon session to stop."
+            }))
+            return
+
+        session.end_time = now()
+        await self.save_dungeon_session(session)  # Proper async save
+
+        await self.send(text_data=json.dumps({
+            "type": "dungeon_stopped",
+            "message": "Dungeon run stopped."
+        }))
+
+    @database_sync_to_async
+    def add_coins_sync(self, user, amount: int):
+        user.coins += amount
+        user.save()
+
+    @database_sync_to_async
+    def get_paused_session(self, user_id):
+        from .models import DungeonSession
+        return DungeonSession.objects.filter(
+            user_id=user_id, end_time__isnull=True, paused=True
+        ).first()
+
+    @database_sync_to_async
+    def add_item_by_name_local_sync(self, user, item_name: str):
+        from .models import Item, Inventory
+        item = Item.objects.get(name=item_name)
+        inv, _ = Inventory.objects.get_or_create(user=user)
+        inv.items.add(item)
+
+    @database_sync_to_async
+    def save_dungeon_session(self, session):
+        session.save()
+
+    async def handle_dungeon_choice(self, choice_index):
+        """
+        Demonstrates calling the lazy-imported methods above.
+        """
+        # LAZY IMPORT inside an async method is also possible, but typically you only
+        # need them in the sync portion. If you need a model just once here, you can do:
+        # from .models import DungeonSession
+
+        # 1) Fetch paused session
+        session = await self.get_paused_session(self.user.id)
+        if not session:
+            await self.send("No paused dungeon session found.")
+            return
+
+        if not session.npc_event_data:
+            await self.send("No NPC event data to resolve.")
+            return
+
+        event_data = session.npc_event_data.get("event", {})
+        choices = event_data.get("choices", [])
+
+        if choice_index < 0 or choice_index >= len(choices):
+            await self.send("Invalid choice index.")
+            return
+
+        choice = choices[choice_index].get("consequences", {})
+
+        # 2) Modify user stats in a thread-safe way
+        health_change = choice.get("health_change", 0)
+        currency_change = choice.get("currency_change", 0)
+        session.user_health += health_change
+
+        # Call the lazy-imported add_coins_sync function
+        await self.add_coins_sync(self.user, currency_change)
+
+        # 3) Add any items gained
+        for item_name in choice.get("inventory_additions", []):
+            print(item_name)
+            await self.add_item_by_name_local_sync(self.user, item_name)
+
+        # 4) Unpause and save the session
+        session.paused = False
+        session.npc_event_data = None
+
+        from django.utils.timezone import now, timedelta
+        session.next_item_time = now() + timedelta(minutes=10)
+
+        # Use our lazy method to save the session
+        await self.save_dungeon_session(session)
+
+        # 5) Send feedback
+        await self.send(text_data=json.dumps({
+            "type": "choice_feedback",
+            "consequence_text": choice.get("consequence_text", "")
+        }))
+
+    @sync_to_async
+    def add_item_by_name_local(self, item_name):
+        """
+        Adds an item to the user's inventory by name (local import).
+        """
+        from .models import Item, Inventory
+        try:
+            item = Item.objects.get(name=item_name)
+            inventory, _ = Inventory.objects.get_or_create(user=self.user)
+            inventory.items.add(item)
+        except Item.DoesNotExist:
+            pass
+
+    @sync_to_async
+    def get_active_dungeon_session(self):
+        print("get_active_dungeon_session")
+        from .models import DungeonSession
+        try:
+            sess = DungeonSession.objects.filter(
+                user=self.user,
+                end_time__isnull=True,
+                paused=False
+            ).order_by('-start_time').first()
+
+            if sess:
+                print(f"Active dungeon session found: {sess}")
+            else:
+                print(f"No active dungeon session found for user: {self.user.username}")
+
+            return sess
+        except Exception as e:
+            print(f"Error fetching active dungeon session: {e}")
+            return None
+
+    @sync_to_async
+    def get_paused_dungeon_session(self):
+        """
+        Returns a paused session if it exists (NPC event triggered).
+        """
+        from .models import DungeonSession
+        return DungeonSession.objects.filter(
+            user=self.user, end_time__isnull=True, paused=True
+        ).first()
+
+    @sync_to_async
+    def get_dungeon_data(self):
+        from .models import DungeonSession, Item
+
+        session = DungeonSession.objects.filter(
+            user=self.user,
+            end_time__isnull=True
+        ).first()
+
+        if not session:
+            return {
+                "items": [],
+                "npc_event": {},
+                "message": "No active dungeon session."
+            }
+
+        items_collected = []
+        for i in session.items_collected.all():
+            items_collected.append({
+                "id": i.id,
+                "name": i.name,
+                "file_name": i.file_name,
+                "category": i.category,
+            })
+
+        return {
+            "items": items_collected,
+            "logs": session.logs,
+            "npc_event": session.npc_event_data or {},
+            "paused": session.paused,
+            "start_time": session.start_time.isoformat(),
+            "end_time": session.end_time.isoformat() if session.end_time else None,
+            "message": "Dungeon data fetched successfully."
+        }
+
+    @staticmethod
+    def generate_event_data(npc):
+        """
+        Generates a structured event (dialogue + choices) for an NPC encounter.
+        This is a simplistic example—customize as needed.
+        """
+        # For demonstration, we use a random scenario from a list,
+        # or you can generate text dynamically with an AI service like Amazon Bedrock
+        scenarios = [
+            {
+                "dialogue": f"{npc.name} glances at you warily. 'We don't get many travelers here...'",
+                "choices": [
+                    {
+                        "choice_text": "Ask for directions.",
+                        "consequences": {
+                            "health_change": 0,
+                            "inventory_additions": [],
+                            "currency_change": 0,
+                            "consequence_text": "The NPC gives you directions, though they seem unsure."
+                        }
+                    },
+                    {
+                        "choice_text": "Attack immediately.",
+                        "consequences": {
+                            "health_change": -10,
+                            "inventory_additions": [],
+                            "currency_change": 0,
+                            "consequence_text": "You strike first, dealing 10 damage—but the NPC quickly retaliates."
+                        }
+                    }
+                ]
+            },
+            {
+                "dialogue": f"{npc.name} stands by a strange portal. 'Care to step through and test your luck?'",
+                "choices": [
+                    {
+                        "choice_text": "Enter the portal.",
+                        "consequences": {
+                            "health_change": -20,
+                            "inventory_additions": ["Mysterious Crystal"],
+                            "currency_change": 0,
+                            "consequence_text": "You feel a strange force draining your energy, but gain a shimmering crystal."
+                        }
+                    },
+                    {
+                        "choice_text": "Refuse and walk away.",
+                        "consequences": {
+                            "health_change": 0,
+                            "inventory_additions": [],
+                            "currency_change": 0,
+                            "consequence_text": "You keep your distance, missing out on whatever lay beyond the portal."
+                        }
+                    }
+                ]
+            }
+        ]
+
+        scenario = choice(scenarios)  # pick a random scenario
+        return scenario
+
+    @staticmethod
+    def notify_user(user_id, message: dict):
+        """
+        Sends a message to the user if they are connected (in group "user_{user_id}").
+        """
+        channel_layer = get_channel_layer()
+        group_name = f"user_{user_id}"
+
+        # Since Celery tasks or other code might be sync, we ensure group_send is sync-safe:
+        async_to_sync(channel_layer.group_send)(
+            group_name,
+            {
+                "type": "send_message",
+                "message": message,
+            }
+        )
+
+    @sync_to_async
+    def is_player_in_dungeon(self):
+        """
+        Checks if the current user is currently in a dungeon session (not ended).
+        Returns True if a session is active or paused; otherwise False.
+        """
+        from .models import DungeonSession
+        print("checking dungeon status")
+        session = DungeonSession.objects.filter(
+            user=self.user,
+            end_time__isnull=True
+        ).first()
+
+        if session is not None:
+            self.send(text_data=json.dumps({
+                "type": "dungeon_status",
+                "data": {"is_running": True}
+            }))
+        else:
+            self.send(text_data=json.dumps({
+                "type": "dungeon_status",
+                "data": {"is_running": False}
+            }))
