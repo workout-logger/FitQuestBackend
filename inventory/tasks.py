@@ -29,16 +29,6 @@ def process_dungeon_sessions():
                     session.items_collected.add(random_item)
                     session.add_log(f"Collected item: {random_item.name} ({random_item.category}, {random_item.rarity})")
 
-                    # Notify user (if online) about the reward
-                    InventoryConsumer.notify_user(session.user.id, {
-                        "type": "dungeon_reward",
-                        "data": {
-                            "id": random_item.id,
-                            "name": random_item.name,
-                            "category": random_item.category,
-                            "rarity": random_item.rarity,
-                        }
-                    })
 
                     # Schedule the next reward (10 minutes from now)
                     session.next_item_time = now() + timedelta(minutes=10)
@@ -46,12 +36,12 @@ def process_dungeon_sessions():
 
             # Trigger NPC event after 1 hour if not triggered
             elapsed = now() - session.start_time
-            if not session.npc_event_triggered and elapsed.total_seconds() >= 3600:
+            if not session.npc_event_triggered and elapsed.total_seconds() >= 60:
                 npc = NPC.objects.order_by("?").first()
                 if npc:
                     session.npc_event_triggered = True
                     session.paused = True
-                    event_data = InventoryConsumer.generate_event_data(npc)
+                    event_data = InventoryConsumer.generate_dynamic_event(npc)
                     session.npc_event_data = {
                         "npc": {
                             "name": npc.name,
@@ -62,12 +52,7 @@ def process_dungeon_sessions():
                     session.add_log(f"Encountered NPC: {npc.name} - {npc.short_description}")
                     session.save(update_fields=['npc_event_triggered', 'paused', 'npc_event_data', 'logs'])
 
-                    # Notify user (if online) about the event
-                    InventoryConsumer.notify_user(session.user.id, {
-                        "type": "dungeon_event",
-                        "npc": session.npc_event_data["npc"],
-                        "event": session.npc_event_data["event"]
-                    })
+
 
             # Check if it's time for an escapade
             if now() >= session.next_escapade_time:
@@ -107,7 +92,7 @@ def fight_monster(session):
         {"name": "Dark Sorcerer", "description": "A mysterious figure cloaked in dark robes, wielding arcane powers."}
     ]
     monster = random.choice(monsters)
-    damage = random.randint(5, 20)
+    damage = random.randint(10, 25)
     session.user_health = max(session.user_health - damage, 0)
     session.add_log(f"Fought a {monster['name']}: {monster['description']}. Took {damage} damage.")
     session.save(update_fields=['user_health', 'logs'])
@@ -120,7 +105,7 @@ def find_trap(session):
         "a collapsing ceiling that restricts movement"
     ]
     trap = random.choice(traps)
-    damage = random.randint(5, 15)
+    damage = random.randint(15, 25)
     session.user_health = max(session.user_health - damage, 0)
     session.add_log(f"Triggered {trap}. Took {damage} damage.")
     session.save(update_fields=['user_health', 'logs'])
@@ -155,7 +140,7 @@ def solve_puzzle(session):
 
 
 def rest_regain_health(session):
-    health_regained = random.randint(10, 30)
+    health_regained = random.randint(10, 15)
     session.user_health = min(session.user_health + health_regained, 100)
     session.add_log(f"Rested and regained {health_regained} health.")
     session.save(update_fields=['user_health', 'logs'])

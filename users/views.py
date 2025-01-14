@@ -1,4 +1,7 @@
+import uuid
+
 import requests
+from allauth.socialaccount.models import SocialApp, SocialToken, SocialAccount
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from dj_rest_auth.registration.views import SocialLoginView, RegisterView
 from dj_rest_auth.views import LoginView
@@ -8,11 +11,68 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
+
+from inventory.models import Inventory
 from .models import CustomUser
 from django.contrib.auth import authenticate, get_user_model
-
+from django.utils.timezone import now as timezone_now
+from rest_framework.authtoken.models import Token
 User = get_user_model()
 
+
+@api_view(['POST'])
+@permission_classes([AllowAny])  # Allow any user (authenticated or not) to access this view
+def guest_signup(request):
+    """
+    Endpoint for creating a guest user account.
+    """
+    try:
+        # Generate unique guest email and username
+        unique_id = uuid.uuid4().hex[:8]
+        guest_email = f"guest_{unique_id}@example.com"
+        guest_username = f"guest_{unique_id}"
+
+        # Ensure uniqueness (though UUID reduces collision chances)
+        if User.objects.filter(username=guest_username).exists():
+            return Response(
+                {"error": "Guest username collision. Please try again."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Create the guest user
+        guest_user = User.objects.create_user(
+            username=guest_username,
+            email=guest_email,
+            password=None  # Guests do not have a password
+        )
+        guest_user.is_active = True  # Ensure the user is active
+        guest_user.coins = 200
+        guest_user.save()
+
+        # Optionally, flag the user as a guest by extending the User model or using a Profile model
+        # For simplicity, we'll skip this step here
+
+        # Generate a DRF Token for the guest user
+        token, created = Token.objects.get_or_create(user=guest_user)
+        Inventory.objects.get_or_create(user=guest_user)
+        # Return the token to the client
+        response_data = {
+            "message": "Guest account created successfully",
+            "token": token.key,
+            "username": guest_username,
+            "email": guest_email,
+            "is_new_user": True
+        }
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
+
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error creating guest user: {e}")
+        return Response(
+            {"error": "Failed to create guest account", "details": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
@@ -50,6 +110,10 @@ class GoogleLogin(SocialLoginView):
                     # Proceed with signup
                     response = super().post(request, *args, **kwargs)
                     response.data['is_new_user'] = True
+                    user = User.objects.get(email=email)
+                    user.coins = 200
+                    user.save()
+                    Inventory.objects.get_or_create(user=user)
                     return response
             else:
                 return Response({"error": "Google token does not contain an email"}, status=status.HTTP_400_BAD_REQUEST)

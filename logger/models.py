@@ -12,6 +12,9 @@ class Workout(models.Model):
     mood = models.IntegerField(help_text="1-3 From Sad To Happy")
     energy_burned = models.FloatField(help_text="Kcal")
     muscle_groups = models.ManyToManyField(MuscleGroup, blank=True)
+    strength_gained = models.PositiveIntegerField(default=0, help_text="Player's strength attribute.")
+    agility_gained = models.PositiveIntegerField(default=0, help_text="Player's agility attribute.")
+    speed_gained = models.PositiveIntegerField(default=0, help_text="Player's speed attribute.")
 
     def __str__(self):
         return f"{self.user.username}'s workout on {self.workout_date.strftime('%Y-%m-%d %H:%M:%S')}"

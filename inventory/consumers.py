@@ -1,6 +1,8 @@
 # inventory/consumers.py
 from random import choice
 
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 import json
@@ -9,6 +11,7 @@ from channels.layers import get_channel_layer
 from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async, async_to_sync
 import logging
+
 
 logger = logging.getLogger(__name__)
 class InventoryConsumer(AsyncWebsocketConsumer):
@@ -512,6 +515,12 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         ).first()
 
     @database_sync_to_async
+    def update_user_health(self, session, health_change):
+        session.user_health += health_change
+        session.user_health = max(0, session.user_health)  # Prevent negative health
+        session.save(update_fields=["user_health"])
+
+    @database_sync_to_async
     def add_item_by_name_local_sync(self, user, item_name: str):
         from .models import Item, Inventory
         item = Item.objects.get(name=item_name)
@@ -523,14 +532,6 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         session.save()
 
     async def handle_dungeon_choice(self, choice_index):
-        """
-        Demonstrates calling the lazy-imported methods above.
-        """
-        # LAZY IMPORT inside an async method is also possible, but typically you only
-        # need them in the sync portion. If you need a model just once here, you can do:
-        # from .models import DungeonSession
-
-        # 1) Fetch paused session
         session = await self.get_paused_session(self.user.id)
         if not session:
             await self.send("No paused dungeon session found.")
@@ -552,9 +553,8 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         # 2) Modify user stats in a thread-safe way
         health_change = choice.get("health_change", 0)
         currency_change = choice.get("currency_change", 0)
-        session.user_health += health_change
 
-        # Call the lazy-imported add_coins_sync function
+        await self.update_user_health(session, health_change)
         await self.add_coins_sync(self.user, currency_change)
 
         # 3) Add any items gained
@@ -643,18 +643,23 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             items_collected.append({
                 "id": i.id,
                 "name": i.name,
+                "rarity": i.rarity,
                 "file_name": i.file_name,
                 "category": i.category,
             })
 
+        death_occurred = session.user_health <= 0
+
         return {
             "items": items_collected,
             "logs": session.logs,
+            "current_health": session.user_health,
             "npc_event": session.npc_event_data or {},
             "paused": session.paused,
             "start_time": session.start_time.isoformat(),
             "end_time": session.end_time.isoformat() if session.end_time else None,
-            "message": "Dungeon data fetched successfully."
+            "message": "Dungeon data fetched successfully.",
+            "death": death_occurred
         }
 
     @staticmethod
@@ -717,22 +722,15 @@ class InventoryConsumer(AsyncWebsocketConsumer):
         scenario = choice(scenarios)  # pick a random scenario
         return scenario
 
-    @staticmethod
-    def notify_user(user_id, message: dict):
+    async def send_health_update(self, event):
         """
-        Sends a message to the user if they are connected (in group "user_{user_id}").
+        Handles a health update message sent via the channel layer.
         """
-        channel_layer = get_channel_layer()
-        group_name = f"user_{user_id}"
-
-        # Since Celery tasks or other code might be sync, we ensure group_send is sync-safe:
-        async_to_sync(channel_layer.group_send)(
-            group_name,
-            {
-                "type": "send_message",
-                "message": message,
-            }
-        )
+        health_data = event["data"]
+        await self.send(text_data=json.dumps({
+            "type": "health_update",
+            "data": health_data
+        }))
 
     @sync_to_async
     def is_player_in_dungeon(self):
@@ -757,3 +755,183 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                 "type": "dungeon_status",
                 "data": {"is_running": False}
             }))
+
+    @staticmethod
+    def generate_dynamic_event(npc) -> dict:
+        """
+        Generates a dynamic dungeon event involving the specified NPC using Amazon Bedrock.
+        """
+        # Fallback example event structure
+        example_event = {
+            "dialogue": f"{npc.name} glances at you warily. '{npc.short_description}'",
+            "choices": [
+                {
+                    "choice_text": "Ask for directions.",
+                    "consequences": {
+                        "health_change": 0,
+                        "currency_change": 0,
+                        "consequence_text": "The NPC gives you directions, though they seem unsure."
+                    }
+                },
+                {
+                    "choice_text": "Attack immediately.",
+                    "consequences": {
+                        "health_change": -10,
+                        "currency_change": 0,
+                        "consequence_text": "You strike first, dealing 10 damage—but the NPC quickly retaliates."
+                    }
+                }
+            ]
+        }
+
+        # Define the revised prompt for the model
+        prompt = (
+            "Act as a creative game event generator. Given an NPC's details, create a dungeon event that includes "
+            "dialogue from the NPC and exactly two choices. Each choice must have a 'choice_text' and corresponding "
+            "'consequences' including 'health_change', 'currency_change', and 'consequence_text'.\n\n"
+            "Output only the JSON object without any additional text or formatting.\n"
+            "Example:\n"
+            "{\n"
+            '    "dialogue": "Sloan Rho leans against a cracked concrete wall, cleaning a sleek pistol with practiced movements. \'You\'re not from around here. What\'s your business in this sector?\' Their eyes scan you coldly, waiting for a response.",\n'
+            '    "choices": [\n'
+            '        {\n'
+            '            "choice_text": "Offer to help with a local problem.",\n'
+            '            "consequences": {\n'
+            '                "health_change": 0,\n'
+            '                "currency_change": 50,\n'
+            '                "consequence_text": "Sloan considers your offer, then nods. They share a quick job that pays well, appreciating your straightforward approach."\n'
+            '            }\n'
+            '        },\n'
+            '        {\n'
+            '            "choice_text": "Claim you\'re just passing through.",\n'
+            '            "consequences": {\n'
+            '                "health_change": -5,\n'
+            '                "currency_change": -20,\n'
+            '                "consequence_text": "Sloan doesn\'t believe your story. They rough you up a bit and search your pockets, taking some of your credits as \'insurance\'."\n'
+            '            }\n'
+            '        }\n'
+            '    ]\n'
+            "}\n"
+            "\n"
+            "Generate a dungeon event based on the following NPC details:\n"
+            f'"name": "{npc.name}",\n'
+            f'"description": "{npc.short_description}"\n'
+        )
+
+        # Prepare the request payload (adjust according to Bedrock's API)
+        native_request = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 512,
+            "temperature": 0.5,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt}],
+                }
+            ],
+        }
+
+        # Convert the request to JSON
+        request = json.dumps(native_request)
+
+        # Create the Bedrock Runtime client
+        client = boto3.client("bedrock-runtime", region_name="us-east-2")
+        model_id = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+
+        try:
+            # Invoke the model with the request
+            streaming_response = client.invoke_model_with_response_stream(
+                modelId=model_id, body=request
+            )
+
+            # Collect the response content from text_deltas
+            full_response = ""
+            for event in streaming_response.get("body", []):
+                try:
+                    chunk_str = event.get("chunk", {}).get("bytes", b"").decode('utf-8')
+                    if not chunk_str:
+                        continue  # Skip empty chunks
+
+                    # Each chunk_str is a JSON object, parse it
+                    chunk_json = json.loads(chunk_str)
+
+                    # Check if it's a content_block_delta with text_delta
+                    if chunk_json.get("type") == "content_block_delta":
+                        delta = chunk_json.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            text = delta.get("text", "")
+                            full_response += text  # Accumulate the text
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding chunk: {e}")
+                    print(f"Chunk content: {chunk_str}")
+                    continue  # Skip malformed chunks
+
+            # Debugging: Print the full_response to inspect its content
+            print("Full Response from Model:", full_response)
+
+            if not full_response.strip():
+                print("Received empty response from the model. Using fallback example_event.")
+                return example_event  # Return fallback if the response is empty
+
+            # Attempt to parse the accumulated full_response as JSON
+            try:
+                response_data = json.loads(full_response)
+            except json.JSONDecodeError as json_err:
+                print(f"JSON decoding error after accumulation: {json_err}")
+                print(f"Accumulated JSON string was: {full_response}")
+                return example_event  # Return fallback structure
+
+            # Extract dialogue and choices with defaults
+            dialogue = response_data.get("dialogue", example_event["dialogue"])
+            choices = response_data.get("choices", example_event["choices"])
+
+            # Validate that choices contain required fields
+            validated_choices = []
+            for choice in choices:
+                choice_text = choice.get("choice_text", "Default choice")
+                consequences = choice.get("consequences", {})
+                health_change = consequences.get("health_change", 0)
+                currency_change = consequences.get("currency_change", 0)
+                consequence_text = consequences.get("consequence_text", "")
+
+                validated_choices.append({
+                    "choice_text": choice_text,
+                    "consequences": {
+                        "health_change": health_change,
+                        "currency_change": currency_change,
+                        "consequence_text": consequence_text
+                    }
+                })
+
+            # Ensure exactly two choices
+            if len(validated_choices) != 2:
+                print(f"Expected 2 choices, but got {len(validated_choices)}. Using fallback choices.")
+                return example_event
+
+            # Format and return the structured output
+            return {
+                "dialogue": dialogue.strip(),
+                "choices": validated_choices
+            }
+
+        except Exception as e:
+            print(f"Error generating dynamic event: {e}")
+            return example_event  # Return fallback structure
+
+    @sync_to_async
+    def get_random_npc(self):
+        """
+        Retrieves a random NPC from the database.
+        """
+        from inventory.models import NPC
+
+        try:
+            npc = NPC.objects.order_by('?').first()
+            if npc:
+                logger.info("Selected NPC '%s' for dungeon event.", npc.name)
+            else:
+                logger.warning("No NPCs found in the database.")
+            return npc
+        except Exception as e:
+            logger.error(f"Error fetching random NPC: {e}")
+            return None
