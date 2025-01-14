@@ -107,106 +107,106 @@ def workout_receiver(request):
         # -----------------------
         # 3. Start Transaction
         # -----------------------
-        with transaction.atomic():
-            # Create Workout object without exercises_done and muscle_groups
-            workout = Workout.objects.create(
-                user=user,
-                duration=duration,
-                workout_date=timezone.now(),
-                avg_heart_rate=avg_heart_rate,
-                mood=mood,
-                energy_burned=0.0,  # Will update later
-                strength_gained=0,
-                agility_gained=0,
-                speed_gained=0,
-            )
+        # Create Workout object without exercises_done and muscle_groups
+        workout = Workout.objects.create(
+            user=user,
+            duration=duration,
+            workout_date=timezone.now(),
+            avg_heart_rate=avg_heart_rate,
+            mood=mood,
+            energy_burned=0.0,  # Will update later
+            strength_gained=0,
+            agility_gained=0,
+            speed_gained=0,
+        )
 
-            # Initialize totals
-            total_calories = 0.0
-            total_strength = 0
-            total_agility = 0
-            total_speed = 0
-            muscle_groups_set = set()
+        # Initialize totals
+        total_calories = 0.0
+        total_strength = 0
+        total_agility = 0
+        total_speed = 0
+        muscle_groups_set = set()
 
-            for idx, exercise_data in enumerate(exercises, start=1):
-                # Validate each exercise entry
-                if not isinstance(exercise_data, dict):
-                    print(f"Exercise entry {idx} is not a dictionary. Skipping.")
-                    continue
+        for idx, exercise_data in enumerate(exercises, start=1):
+            # Validate each exercise entry
+            if not isinstance(exercise_data, dict):
+                print(f"Exercise entry {idx} is not a dictionary. Skipping.")
+                continue
 
-                exercise_name = exercise_data.get("name")
-                sets = exercise_data.get("sets", 1)
-                reps = exercise_data.get("reps", 1)  # Not used in calculation, but can be stored if needed
+            exercise_name = exercise_data.get("name")
+            sets = exercise_data.get("sets", 1)
+            reps = exercise_data.get("reps", 1)  # Not used in calculation, but can be stored if needed
 
-                # Validate exercise_name
-                if not exercise_name:
-                    print(f"Exercise entry {idx} missing 'name'. Skipping.")
-                    continue
+            # Validate exercise_name
+            if not exercise_name:
+                print(f"Exercise entry {idx} missing 'name'. Skipping.")
+                continue
 
-                # Validate sets
-                try:
-                    sets = int(sets)
-                    if sets < 1:
-                        raise ValueError
-                except (ValueError, TypeError):
-                    print(f"Exercise entry {idx} has invalid 'sets'. Defaulting to 1.")
-                    sets = 1
+            # Validate sets
+            try:
+                sets = int(sets)
+                if sets < 1:
+                    raise ValueError
+            except (ValueError, TypeError):
+                print(f"Exercise entry {idx} has invalid 'sets'. Defaulting to 1.")
+                sets = 1
 
-                # Validate reps (optional)
-                try:
-                    reps = int(reps)
-                    if reps < 1:
-                        raise ValueError
-                except (ValueError, TypeError):
-                    print(f"Exercise entry {idx} has invalid 'reps'. Defaulting to 1.")
-                    reps = 1
+            # Validate reps (optional)
+            try:
+                reps = int(reps)
+                if reps < 1:
+                    raise ValueError
+            except (ValueError, TypeError):
+                print(f"Exercise entry {idx} has invalid 'reps'. Defaulting to 1.")
+                reps = 1
 
-                # Retrieve the exercise object
-                try:
-                    exercise = Exercise.objects.get(name=exercise_name)
-                except Exercise.DoesNotExist:
-                    print(f"Exercise '{exercise_name}' does not exist. Skipping.")
-                    continue
+            # Retrieve the exercise object
+            try:
+                exercise = Exercise.objects.get(name=exercise_name)
+            except Exercise.DoesNotExist:
+                print(f"Exercise '{exercise_name}' does not exist. Skipping.")
+                continue
 
-                # Add to exercises_done
-                workout.exercises_done.add(exercise)
+            # Add to exercises_done
+            workout.exercises_done.add(exercise)
 
-                # Accumulate muscle groups
-                muscle_groups = exercise.muscle_groups.all()
-                for mg in muscle_groups:
-                    muscle_groups_set.add(mg)
+            # Accumulate muscle groups
+            muscle_groups = exercise.muscle_groups.all()
+            for mg in muscle_groups:
+                muscle_groups_set.add(mg)
 
-                # Calculate calories for this exercise
-                calories = CALORIES_PER_SET * sets
-                total_calories += calories
+            # Calculate calories for this exercise
+            calories = CALORIES_PER_SET * sets
+            total_calories += calories
 
-                # Calculate attribute gains
-                strength_gain = STRENGTH_GAIN_PER_SET * sets
-                agility_gain = AGILITY_GAIN_PER_SET * sets
-                speed_gain = SPEED_GAIN_PER_SET * sets
+            # Calculate attribute gains
+            strength_gain = STRENGTH_GAIN_PER_SET * sets
+            agility_gain = AGILITY_GAIN_PER_SET * sets
+            speed_gain = SPEED_GAIN_PER_SET * sets
 
-                total_strength += strength_gain
-                total_agility += agility_gain
-                total_speed += speed_gain
+            total_strength += strength_gain
+            total_agility += agility_gain
+            total_speed += speed_gain
 
-            # Assign muscle groups to the workout
-            workout.muscle_groups.set(muscle_groups_set)
+        # Assign muscle groups to the workout
+        workout.muscle_groups.set(muscle_groups_set)
 
-            # Update energy_burned and attribute gains
-            workout.energy_burned = total_calories
-            if not within_24_hours:
-                workout.strength_gained = min(total_strength, 5)
-                workout.agility_gained = min(total_agility, 5)
-                workout.speed_gained = min(total_speed, 5)
-            else:
-                workout.strength_gained = 0
-                workout.agility_gained = 0
-                workout.speed_gained = 0
-            workout.save()
-            user.strength += min(total_strength, 5)
-            user.agility += min(total_agility, 5)
-            user.speed += min(total_speed, 5)
-            user.save()
+        # Update energy_burned and attribute gains
+        workout.energy_burned = total_calories
+        print("within_24_hours "+str(within_24_hours))
+        if not within_24_hours:
+            workout.strength_gained = min(total_strength, 5)
+            workout.agility_gained = min(total_agility, 5)
+            workout.speed_gained = min(total_speed, 5)
+        else:
+            workout.strength_gained = 1
+            workout.agility_gained =1
+            workout.speed_gained = 1
+        workout.save()
+        user.strength += min(total_strength, 5)
+        user.agility += min(total_agility, 5)
+        user.speed += min(total_speed, 5)
+        user.save()
 
         # -----------------------
         # 4. Return Success Response

@@ -12,6 +12,8 @@ from django.contrib.auth import get_user_model
 from asgiref.sync import sync_to_async, async_to_sync
 import logging
 
+from django.utils.timezone import now
+
 
 logger = logging.getLogger(__name__)
 class InventoryConsumer(AsyncWebsocketConsumer):
@@ -483,10 +485,10 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             }))
 
     async def stop_dungeon(self):
-        from django.utils.timezone import now
-        from .models import DungeonSession
+        from .models import DungeonSession, Inventory
 
-        session = await self.get_active_dungeon_session()
+        # Retrieve the active dungeon session
+        session = await self.get_active_dungeon_session_end()
         if not session:
             await self.send(text_data=json.dumps({
                 "type": "dungeon_error",
@@ -494,13 +496,66 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             }))
             return
 
-        session.end_time = now()
-        await self.save_dungeon_session(session)  # Proper async save
+        # Only process inventory if session is not paused
+        if not session.paused:
+            try:
+                # Wrap all synchronous operations in sync_to_async
+                @sync_to_async
+                def update_inventory():
+                    # Get or create inventory in a single transaction
+                    inventory, created = Inventory.objects.get_or_create(user=session.user)
+                    print(f"Inventory {'created' if created else 'retrieved'} for user")
 
-        await self.send(text_data=json.dumps({
-            "type": "dungeon_stopped",
-            "message": "Dungeon run stopped."
-        }))
+                    # Get collected items
+                    collected_items = list(session.items_collected.all())
+                    print(f"Found {len(collected_items)} collected items")
+
+                    if collected_items:
+                        # Add items to inventory
+                        inventory.items.add(*collected_items)
+                        print(f"Added {len(collected_items)} items to inventory")
+
+                    # Verify final inventory state
+                    updated_items = list(inventory.items.all())
+                    print(f"Updated inventory contains {len(updated_items)} items")
+
+                    return True
+
+                # Execute the inventory update
+                await update_inventory()
+
+            except Exception as e:
+                error_message = f"An error occurred while updating your inventory: {str(e)}"
+                print(error_message)
+                await self.send(text_data=json.dumps({
+                    "type": "inventory_error",
+                    "message": error_message
+                }))
+                return
+
+        try:
+            # Wrap session update in a sync_to_async function
+            @sync_to_async
+            def update_session():
+                session.end_time = now()
+                session.save()
+
+            await update_session()
+
+            await self.send(text_data=json.dumps({
+                "type": "dungeon_stopped",
+                "message": "Dungeon run stopped successfully."
+            }))
+
+        except Exception as e:
+            await self.send(text_data=json.dumps({
+                "type": "dungeon_error",
+                "message": f"Error saving session: {str(e)}"
+            }))
+
+    @database_sync_to_async
+    def save_session(self, session):
+        session.save()
 
     @database_sync_to_async
     def add_coins_sync(self, user, amount: int):
@@ -613,6 +668,25 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             return None
 
     @sync_to_async
+    def get_active_dungeon_session_end(self):
+        from .models import DungeonSession
+        try:
+            sess = DungeonSession.objects.filter(
+                user=self.user,
+                end_time__isnull=True,
+            ).order_by('-start_time').first()
+
+            if sess:
+                print(f"Active dungeon session found: {sess}")
+            else:
+                print(f"No active dungeon session found for user: {self.user.username}")
+
+            return sess
+        except Exception as e:
+            print(f"Error fetching active dungeon session: {e}")
+            return None
+
+    @sync_to_async
     def get_paused_dungeon_session(self):
         """
         Returns a paused session if it exists (NPC event triggered).
@@ -649,6 +723,8 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             })
 
         death_occurred = session.user_health <= 0
+        if death_occurred:
+            session.end_time = now()
 
         return {
             "items": items_collected,

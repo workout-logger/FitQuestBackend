@@ -13,9 +13,9 @@ def process_dungeon_sessions():
     """
     Periodic task to process all active dungeon sessions:
     - Generate item rewards if the time has come.
-    - Trigger an NPC event after 1 hour if not yet triggered.
+    - Trigger an NPC event after a specified duration if not yet triggered.
     - Generate escapade events every 10 minutes and log them.
-    - Pause the session on an NPC event.
+    - Pause and stop the session if the user's health drops to zero or below.
     """
     sessions = DungeonSession.objects.filter(end_time__isnull=True, paused=False)
     print(f"Processing {sessions.count()} active dungeon sessions.")
@@ -24,7 +24,7 @@ def process_dungeon_sessions():
         with transaction.atomic():
             # Check if it's time for an item reward
             if session.next_item_time and now() >= session.next_item_time:
-                random_item = Item.objects.order_by("?").first()
+                random_item = Item.objects.exclude(category='coins').order_by("?").first()
                 if random_item:
                     session.items_collected.add(random_item)
                     session.add_log(f"Collected item: {random_item.name} ({random_item.category}, {random_item.rarity})")
@@ -36,7 +36,7 @@ def process_dungeon_sessions():
 
             # Trigger NPC event after 1 hour if not triggered
             elapsed = now() - session.start_time
-            if not session.npc_event_triggered and elapsed.total_seconds() >= 60:
+            if not session.npc_event_triggered and elapsed.total_seconds() >= 360:  # 3600 seconds = 1 hour
                 npc = NPC.objects.order_by("?").first()
                 if npc:
                     session.npc_event_triggered = True
@@ -54,12 +54,28 @@ def process_dungeon_sessions():
 
 
 
-            # Check if it's time for an escapade
-            if now() >= session.next_escapade_time:
+            if session.next_escapade_time and now() >= session.next_escapade_time:
                 generate_escapade(session)
                 # Schedule the next escapade 10 minutes later
                 session.next_escapade_time = now() + timedelta(minutes=10)
                 session.save(update_fields=['next_escapade_time'])
+
+            # **Health Check: Pause and Stop Session if Health <= 0**
+            if session.user_health <= 0 and not session.paused:
+                session.add_log("You have died in the dungeon.")
+
+                # Set the end_time to mark the session as ended
+                # session.end_time = now()
+                session.paused = True
+
+                # Optionally, add additional logs or handle rewards/punishments
+                # For example: session.add_log("Session ended due to death.")
+
+                # Save the session with updated fields
+                session.save(update_fields=['end_time', 'logs','paused'])
+
+                # **Notify Frontend** about the death event
+                # Assuming you have a method to send messages via WebSocket
 
 
 def generate_escapade(session):
