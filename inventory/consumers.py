@@ -90,6 +90,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             choice_index = data.get("choice_index", 0)
             await self.handle_dungeon_choice(choice_index)
         elif action == "fetch_dungeon_data":
+            print("dungeon")
             dungeon_data = await self.get_dungeon_data()
             await self.send(text_data=json.dumps({
                 "type": "dungeon_data",
@@ -698,6 +699,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
 
     @sync_to_async
     def get_dungeon_data(self):
+        print("in get_dungeon_data")
         from .models import DungeonSession, Item
 
         session = DungeonSession.objects.filter(
