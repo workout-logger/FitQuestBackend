@@ -157,6 +157,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                 })
 
             # Fetch player stats from the user object
+            self.user.refresh_from_db()
             stats = {
                 "strength": self.user.strength,
                 "agility": self.user.agility,
