@@ -125,7 +125,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                 equipped_data = {
                     "legs": equipped_items.legs.file_name if equipped_items.legs else None,
                     "headpiece": equipped_items.headpiece.file_name if equipped_items.headpiece else None,
-                    "shield": equipped_items.shield.file_name if equipped_items.shield else None,
+                    "arm": equipped_items.arm.file_name if equipped_items.arm else None,
                     "melee": equipped_items.melee.file_name if equipped_items.melee else None,
                     "armour": equipped_items.armour.file_name if equipped_items.armour else None,
                     "wings": equipped_items.wings.file_name if equipped_items.wings else None,
@@ -140,7 +140,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
                 is_equipped = (
                         equipped_items is not None and any(
                     getattr(equipped_items, key, None) and getattr(equipped_items, key).file_name == item.file_name
-                    for key in ["legs", "headpiece", "shield", "melee", "armour", "wings"]
+                    for key in ["legs", "headpiece", "arm", "melee", "armour", "wings"]
                 )
                 )
                 # Append `_inv` to file_name for everything except armour
@@ -168,7 +168,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
 
             # Add stats from equipped items
             if equipped_items:
-                for key in ["legs", "headpiece", "shield", "melee", "armour", "wings"]:
+                for key in ["legs", "headpiece", "arm", "melee", "armour", "wings"]:
                     item = getattr(equipped_items, key, None)
                     if item:
                         stats["strength"] += getattr(item, "strength", 0)
@@ -228,7 +228,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             inventory.items.remove(item)
             try:
                 equipped_items = inventory.equipped_items
-                for field in ["legs", "headpiece", "shield", "wings", "melee", "armour"]:
+                for field in ["legs", "headpiece", "arm", "wings", "melee", "armour"]:
                     equipped_item = getattr(equipped_items, field)
                     if equipped_item == item:
                         setattr(equipped_items, field, None)
@@ -255,7 +255,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             inventory = Inventory.objects.get(user=self.user)
             equipped_items, _ = EquippedItem.objects.get_or_create(inventory=inventory)
 
-            if category in ["legs", "headpiece", "shield", "wings", "melee", "armour"]:
+            if category in ["legs", "headpiece", "arm", "wings", "melee", "armour"]:
                 if item in inventory.items.all() and item.category == category:
                     setattr(equipped_items, category, item)
                     equipped_items.save()
@@ -272,7 +272,7 @@ class InventoryConsumer(AsyncWebsocketConsumer):
             inventory = Inventory.objects.get(user=self.user)
             equipped_items, _ = EquippedItem.objects.get_or_create(inventory=inventory)
 
-            if category in ["legs", "headpiece", "shield", "wings", "melee", "armour"]:
+            if category in ["legs", "headpiece", "arm", "wings", "melee", "armour"]:
                 setattr(equipped_items, category, None)
                 equipped_items.save()
         except Inventory.DoesNotExist:

@@ -19,7 +19,7 @@ def get_equipped_items(request):
         equipped_data = {
             "legs": equipped_items.legs.file_name if equipped_items.legs else None,
             "headpiece": equipped_items.headpiece.file_name if equipped_items.headpiece else None,
-            "shield": equipped_items.shield.file_name if equipped_items.shield else None,
+            "arm": equipped_items.arm.file_name if equipped_items.arm else None,
             "melee": equipped_items.melee.file_name if equipped_items.melee else None,
             "armour": equipped_items.armour.file_name if equipped_items.armour else None,
             "wings": equipped_items.wings.file_name if equipped_items.wings else None,
